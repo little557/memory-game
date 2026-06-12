@@ -4,24 +4,22 @@
     <meta charset="UTF-8">
     <title>物品連線遊戲</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-    <style>body { margin: 0; overflow: hidden; background: #000; }</style>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        canvas { display: block; max-width: 100%; max-height: 100vh; object-fit: contain; }
+    </style>
 </head>
 <body>
     <script>
         const config = {
             type: Phaser.AUTO,
-            width: window.innerWidth,
-            height: window.innerHeight,
+            width: 1920,
+            height: 1080,
+            scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
             scene: { preload, create, update }
         };
 
         const game = new Phaser.Game(config);
-
-        const ZONE = {
-            x: 550, y: 40,
-            width: window.innerWidth - 700,
-            height: window.innerHeight - 120
-        };
 
         function preload() {
             this.load.image('bg', 'bg.png');
@@ -32,8 +30,8 @@
         }
 
         function create() {
-            this.add.image(window.innerWidth / 2, window.innerHeight / 2, 'bg')
-                    .setDisplaySize(window.innerWidth, window.innerHeight);
+            // 背景固定置中 (Origin 0.5, 0.5)
+            this.add.image(960, 540, 'bg').setDisplaySize(1920, 1080);
             
             this.bgmStarted = false;
             this.allLines = [];
@@ -41,50 +39,56 @@
             this.isDrawing = false;
             this.graphics = this.add.graphics();
 
+            // 關鍵：定義物品生成區 (請根據你的 bg.png 雲朵實際位置調整這裡的數字)
+            // 雲朵中心位於 (1300, 500)，半徑範圍約為 350
+            const cloudCenter = { x: 1300, y: 500 }; 
+            const cloudRadius = 320; 
+
             const itemTypes = ['1', '2', '3', '4', '5', '6'];
             const levelData = [];
-            const minDistance = 100;
 
             itemTypes.forEach(type => {
                 for (let i = 0; i < 2; i++) {
-                    let x, y, tooClose, attempts = 0;
+                    let x, y, tooClose;
                     do {
                         tooClose = false;
-                        x = Phaser.Math.Between(ZONE.x + 130, ZONE.x + ZONE.width - 130);
-                        y = Phaser.Math.Between(ZONE.y + 130, ZONE.y + ZONE.height - 130);
+                        // 在圓形範圍內隨機生成
+                        let angle = Math.random() * Math.PI * 2;
+                        let dist = Math.random() * cloudRadius;
+                        x = cloudCenter.x + Math.cos(angle) * dist;
+                        y = cloudCenter.y + Math.sin(angle) * dist;
+
                         for (let existing of levelData) {
-                            if (Phaser.Math.Distance.Between(x, y, existing.x, existing.y) < minDistance) {
-                                tooClose = true; break;
-                            }
+                            if (Phaser.Math.Distance.Between(x, y, existing.x, existing.y) < 160) { tooClose = true; break; }
                         }
-                        attempts++;
-                    } while (tooClose && attempts < 500);
+                    } while (tooClose);
                     levelData.push({ x, y, type: type });
                 }
             });
 
             this.items = levelData.map(data => {
                 let item = this.add.sprite(data.x, data.y, data.type).setInteractive();
-                item.setDisplaySize(80, 110);
+                item.setDisplaySize(100, 120);
                 item.itemType = data.type;
                 item.isLinked = false;
                 item.blinkTween = this.tweens.add({ targets: item, alpha: 0.6, duration: 1200, yoyo: true, loop: -1 });
                 
                 item.on('pointerdown', (pointer) => {
                     if (!this.bgmStarted) {
-                        this.sound.add('bgm', { loop: true, volume: 0.5 }).play();
+                        this.sound.add('bgm', { loop: true, volume: 1.0 }).play();
                         this.bgmStarted = true;
                     }
+                    // 連線與清除邏輯
                     let existingIdx = this.allLines.findIndex(l => l.startItem === item || l.endItem === item);
                     if (existingIdx !== -1) {
-                        let oldLine = this.allLines[existingIdx];
-                        oldLine.startItem.isLinked = false; oldLine.endItem.isLinked = false;
+                        this.allLines[existingIdx].startItem.isLinked = false;
+                        this.allLines[existingIdx].endItem.isLinked = false;
                         this.allLines.splice(existingIdx, 1);
                     } else {
                         this.isDrawing = true;
                         this.activeType = item.itemType;
                         this.startItem = item;
-                        this.startX = pointer.x; this.startY = pointer.y;
+                        this.startX = item.x; this.startY = item.y;
                         this.currentPath = [];
                     }
                 });
@@ -93,15 +97,12 @@
 
             this.input.on('pointermove', (pointer) => {
                 if (!this.isDrawing) return;
-                let hitWrongItem = this.items.find(s => s.itemType !== this.activeType && s !== this.startItem && Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 35);
-                let hitLine = this.allLines.some(line => line.points.some(p => Phaser.Math.Distance.Between(pointer.x, pointer.y, p.x, p.y) < 8));
-                if (hitWrongItem || hitLine) { this.isDrawing = false; this.currentPath = []; } 
-                else { this.currentPath.push({x: pointer.x, y: pointer.y}); }
+                this.currentPath.push({x: pointer.x, y: pointer.y});
             });
 
             this.input.on('pointerup', (pointer) => {
                 if (!this.isDrawing) return;
-                let found = this.items.find(s => s.itemType === this.activeType && s !== this.startItem && !s.isLinked && Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 80);
+                let found = this.items.find(s => s.itemType === this.activeType && s !== this.startItem && !s.isLinked && Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 100);
                 if (found) {
                     this.allLines.push({ points: [...this.currentPath], startX: this.startX, startY: this.startY, endX: found.x, endY: found.y, startItem: this.startItem, endItem: found });
                     this.startItem.isLinked = true; found.isLinked = true;
@@ -112,27 +113,21 @@
         }
 
         function showWinMessage() {
-            let overlay = this.add.rectangle(0, 0, window.innerWidth, window.innerHeight, 0xfbf7ec).setOrigin(0).setDepth(200).setAlpha(0);
-            const scale = Math.max(window.innerWidth / 1920, window.innerHeight / 1080);
-            
-            let img1 = this.add.image(window.innerWidth/2, window.innerHeight/2, 'win_end_1').setAlpha(0).setScale(scale).setDepth(201);
-            let img2 = this.add.image(window.innerWidth/2, window.innerHeight/2, 'win_end_2').setAlpha(0).setScale(scale).setDepth(201);
-
-            this.tweens.add({
-                targets: [overlay, img1], alpha: 1, duration: 1500,
-                onComplete: () => {
-                    this.time.delayedCall(1000, () => {
-                        this.tweens.add({ targets: img1, alpha: 0, duration: 1500 });
-                        this.tweens.add({ targets: img2, alpha: 1, duration: 1500 });
-                    });
-                }
-            });
+            let overlay = this.add.rectangle(960, 540, 1920, 1080, 0xfbf7ec).setDepth(200).setAlpha(0);
+            let img1 = this.add.image(960, 540, 'win_end_1').setAlpha(0).setDepth(201);
+            let img2 = this.add.image(960, 540, 'win_end_2').setAlpha(0).setDepth(201);
+            this.tweens.add({ targets: [overlay, img1], alpha: 1, duration: 1500, onComplete: () => {
+                this.time.delayedCall(1000, () => {
+                    this.tweens.add({ targets: img1, alpha: 0, duration: 1500 });
+                    this.tweens.add({ targets: img2, alpha: 1, duration: 1500 });
+                });
+            }});
         }
 
         function update() {
             this.graphics.clear();
             this.allLines.forEach(line => {
-                this.graphics.lineStyle(8, 0x9fa8a3, 0.7);
+                this.graphics.lineStyle(12, 0x9fa8a3, 0.8);
                 this.graphics.beginPath();
                 this.graphics.moveTo(line.startX, line.startY);
                 line.points.forEach(p => this.graphics.lineTo(p.x, p.y));
@@ -140,7 +135,7 @@
                 this.graphics.strokePath();
             });
             if (this.isDrawing) {
-                this.graphics.lineStyle(8, 0x9fa8a3, 0.7);
+                this.graphics.lineStyle(12, 0x9fa8a3, 0.8);
                 this.graphics.beginPath();
                 this.graphics.moveTo(this.startX, this.startY);
                 this.currentPath.forEach(p => this.graphics.lineTo(p.x, p.y));
