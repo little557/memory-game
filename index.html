@@ -1,386 +1,152 @@
 <!DOCTYPE html>
-
 <html>
-
 <head>
-
     <meta charset="UTF-8">
-
     <title>物品連線遊戲</title>
-
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-
     <style>body { margin: 0; overflow: hidden; background: #000; }</style>
-
 </head>
-
 <body>
-
     <script>
-
         const config = {
-
             type: Phaser.AUTO,
-
             width: window.innerWidth,
-
             height: window.innerHeight,
-
             scene: { preload, create, update }
-
         };
-
-
 
         const game = new Phaser.Game(config);
 
-
-
         const ZONE = {
-
             x: 550, y: 40,
-
             width: window.innerWidth - 700,
-
             height: window.innerHeight - 120
-
         };
 
-
-
         function preload() {
-
             this.load.image('bg', 'bg.png');
-
-            // 這裡改成只載入 1 到 6
-
-            for(let i = 1; i <= 6; i++) {
-
-                this.load.image(i.toString(), i + '.png');
-
-            }
-
+            for(let i = 1; i <= 6; i++) { this.load.image(i.toString(), i + '.png'); }
             this.load.image('win_end_1', 'win_end_1.png');
-
             this.load.image('win_end_2', 'win_end_2.png');
-
+            this.load.audio('bgm', 'bgm.aac');
         }
-
-
 
         function create() {
-
             this.add.image(window.innerWidth / 2, window.innerHeight / 2, 'bg')
-
                     .setDisplaySize(window.innerWidth, window.innerHeight);
-
             
-
+            this.bgmStarted = false;
             this.allLines = [];
-
             this.currentPath = [];
-
             this.isDrawing = false;
-
             this.graphics = this.add.graphics();
 
-
-
-            // --- 修改：這裡改為 6 個物品 ---
-
             const itemTypes = ['1', '2', '3', '4', '5', '6'];
-
             const levelData = [];
-
-            const minDistance = 100; // 距離調大一點，讓畫面更寬鬆
-
-
+            const minDistance = 100;
 
             itemTypes.forEach(type => {
-
                 for (let i = 0; i < 2; i++) {
-
                     let x, y, tooClose, attempts = 0;
-
                     do {
-
                         tooClose = false;
-
                         x = Phaser.Math.Between(ZONE.x + 130, ZONE.x + ZONE.width - 130);
-
                         y = Phaser.Math.Between(ZONE.y + 130, ZONE.y + ZONE.height - 130);
-
                         for (let existing of levelData) {
-
                             if (Phaser.Math.Distance.Between(x, y, existing.x, existing.y) < minDistance) {
-
                                 tooClose = true; break;
-
                             }
-
                         }
-
                         attempts++;
-
                     } while (tooClose && attempts < 500);
-
                     levelData.push({ x, y, type: type });
-
                 }
-
             });
-
-
 
             this.items = levelData.map(data => {
-
                 let item = this.add.sprite(data.x, data.y, data.type).setInteractive();
-
-                item.setDisplaySize(80, 110); // 稍微調大一點點
-
+                item.setDisplaySize(80, 110);
                 item.itemType = data.type;
-
                 item.isLinked = false;
-
-                item.blinkTween = this.tweens.add({
-
-                    targets: item, alpha: 0.6, duration: 1200, yoyo: true, loop: -1
-
-                });
-
+                item.blinkTween = this.tweens.add({ targets: item, alpha: 0.6, duration: 1200, yoyo: true, loop: -1 });
+                
                 item.on('pointerdown', (pointer) => {
-
-                    let existingIdx = this.allLines.findIndex(l => l.startItem === item || l.endItem === item);
-
-                    if (existingIdx !== -1) {
-
-                        let oldLine = this.allLines[existingIdx];
-
-                        oldLine.startItem.isLinked = false; oldLine.endItem.isLinked = false;
-
-                        this.allLines.splice(existingIdx, 1);
-
-                    } else {
-
-                        this.isDrawing = true;
-
-                        this.activeType = item.itemType;
-
-                        this.startItem = item;
-
-                        this.startX = pointer.x; this.startY = pointer.y;
-
-                        this.currentPath = [];
-
+                    if (!this.bgmStarted) {
+                        this.sound.add('bgm', { loop: true, volume: 0.5 }).play();
+                        this.bgmStarted = true;
                     }
-
+                    let existingIdx = this.allLines.findIndex(l => l.startItem === item || l.endItem === item);
+                    if (existingIdx !== -1) {
+                        let oldLine = this.allLines[existingIdx];
+                        oldLine.startItem.isLinked = false; oldLine.endItem.isLinked = false;
+                        this.allLines.splice(existingIdx, 1);
+                    } else {
+                        this.isDrawing = true;
+                        this.activeType = item.itemType;
+                        this.startItem = item;
+                        this.startX = pointer.x; this.startY = pointer.y;
+                        this.currentPath = [];
+                    }
                 });
-
                 return item;
-
             });
-
-
 
             this.input.on('pointermove', (pointer) => {
-
                 if (!this.isDrawing) return;
-
-
-
-                // 修改點：不再使用 getBounds()，改用距離 (Distance)
-
-                // 只有當 pointer 真的非常靠近物品中心點 (小於 35 像素) 時，才視為撞到
-
-                let hitWrongItem = this.items.find(s =>
-
-                    s.itemType !== this.activeType &&
-
-                    s !== this.startItem &&
-
-                    Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 35
-
-                );
-
-
-
-                // 檢查是否碰到連線（距離小於 8 像素才視為撞到）
-
-                let hitLine = this.allLines.some(line =>
-
-                    line.points.some(p => Phaser.Math.Distance.Between(pointer.x, pointer.y, p.x, p.y) < 8)
-
-                );
-
-
-
-             if (hitWrongItem || hitLine) {
-
-                    this.isDrawing = false;
-
-                    this.currentPath = [];
-
-            } else {
-
-                this.currentPath.push({x: pointer.x, y: pointer.y});
-
-            }
-
-        });
-
-
+                let hitWrongItem = this.items.find(s => s.itemType !== this.activeType && s !== this.startItem && Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 35);
+                let hitLine = this.allLines.some(line => line.points.some(p => Phaser.Math.Distance.Between(pointer.x, pointer.y, p.x, p.y) < 8));
+                if (hitWrongItem || hitLine) { this.isDrawing = false; this.currentPath = []; } 
+                else { this.currentPath.push({x: pointer.x, y: pointer.y}); }
+            });
 
             this.input.on('pointerup', (pointer) => {
-
                 if (!this.isDrawing) return;
-
-               
-
-                // 改用距離判定，80 像素內即算連線成功
-
-                let found = this.items.find(s =>
-
-                    s.itemType === this.activeType &&
-
-                    s !== this.startItem &&
-
-                    !s.isLinked &&
-
-                    Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 80
-
-                );
-
-
-
+                let found = this.items.find(s => s.itemType === this.activeType && s !== this.startItem && !s.isLinked && Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 80);
                 if (found) {
-
                     this.allLines.push({ points: [...this.currentPath], startX: this.startX, startY: this.startY, endX: found.x, endY: found.y, startItem: this.startItem, endItem: found });
-
-                    this.startItem.isLinked = true;
-
-                    found.isLinked = true;
-
-                    if (this.items.every(item => item.isLinked === true)) {
-
-                        showWinMessage.call(this);
-
-                    }
-
+                    this.startItem.isLinked = true; found.isLinked = true;
+                    if (this.items.every(item => item.isLinked === true)) { showWinMessage.call(this); }
                 }
-
-                this.isDrawing = false;
-
-                this.currentPath = [];
-
+                this.isDrawing = false; this.currentPath = [];
             });
-
         }
-
-
 
         function showWinMessage() {
+            let overlay = this.add.rectangle(0, 0, window.innerWidth, window.innerHeight, 0xfbf7ec).setOrigin(0).setDepth(200).setAlpha(0);
+            const scale = Math.max(window.innerWidth / 1920, window.innerHeight / 1080);
+            
+            let img1 = this.add.image(window.innerWidth/2, window.innerHeight/2, 'win_end_1').setAlpha(0).setScale(scale).setDepth(201);
+            let img2 = this.add.image(window.innerWidth/2, window.innerHeight/2, 'win_end_2').setAlpha(0).setScale(scale).setDepth(201);
 
-    console.log("過關動畫開始");
-
-
-
-    // 1. 建立黑色遮罩 (使用背景色，假設是米白色 0xfdf6e8，或是黑色 0x000000)
-
-    let overlay = this.add.rectangle(0, 0, window.innerWidth, window.innerHeight, 0xfbf7ec)
-
-        .setOrigin(0).setDepth(200).setAlpha(0);
-
-
-
-    const scale = Math.max(window.innerWidth / 1920, window.innerHeight / 1080);
-
-   
-
-    // 2. 建立圖片，預設透明且深度很高
-
-    let img1 = this.add.image(window.innerWidth/2, window.innerHeight/2, 'win_end_1').setAlpha(0).setScale(scale).setDepth(201);
-
-    let img2 = this.add.image(window.innerWidth/2, window.innerHeight/2, 'win_end_2').setAlpha(0).setScale(scale).setDepth(201);
-
-   
-
-
-
-    // --- 改良後的動畫序列 ---
-
-    // 先淡入遮罩與第一張圖 (歷時 1.5 秒)
-
-    this.tweens.add({
-
-        targets: [overlay, img1, txt],
-
-        alpha: 1,
-
-        duration: 1500,
-
-        onComplete: () => {
-
-            // 穩定停頓 2 秒，讓玩家看清楚第一張圖
-
-            this.time.delayedCall(1000, () => {
-
-                // 執行切換：圖1淡出，圖2淡入
-
-                this.tweens.add({ targets: img1, alpha: 0, duration: 1500 });
-
-                this.tweens.add({ targets: img2, alpha: 1, duration: 1500 });
-
+            this.tweens.add({
+                targets: [overlay, img1], alpha: 1, duration: 1500,
+                onComplete: () => {
+                    this.time.delayedCall(1000, () => {
+                        this.tweens.add({ targets: img1, alpha: 0, duration: 1500 });
+                        this.tweens.add({ targets: img2, alpha: 1, duration: 1500 });
+                    });
+                }
             });
-
         }
-
-    });
-
-}
-
-
 
         function update() {
-
             this.graphics.clear();
-
-            this.items.forEach(item => { if (item.isLinked) item.alpha = 1; });
-
             this.allLines.forEach(line => {
-
                 this.graphics.lineStyle(8, 0x9fa8a3, 0.7);
-
                 this.graphics.beginPath();
-
                 this.graphics.moveTo(line.startX, line.startY);
-
                 line.points.forEach(p => this.graphics.lineTo(p.x, p.y));
-
                 this.graphics.lineTo(line.endX, line.endY);
-
                 this.graphics.strokePath();
-
             });
-
             if (this.isDrawing) {
-
                 this.graphics.lineStyle(8, 0x9fa8a3, 0.7);
-
                 this.graphics.beginPath();
-
                 this.graphics.moveTo(this.startX, this.startY);
-
                 this.currentPath.forEach(p => this.graphics.lineTo(p.x, p.y));
-
                 this.graphics.strokePath();
-
             }
-
         }
-
     </script>
-
 </body>
-
-</html> 
-
+</html>
