@@ -9,17 +9,15 @@
             margin: 0; 
             padding: 0;
             overflow: hidden; 
-            /* 將背景顏色改為與你遊戲一致的米白色，避免出現黑色邊框的突兀感 */
             background-color: #fbf7ec; 
             display: flex; 
-            justify-content: center; /* 水平置中 */
-            align-items: center;     /* 垂直置中 */
+            justify-content: center; 
+            align-items: center;    
             height: 100vh; 
             width: 100vw;
         }
         canvas { 
             display: block; 
-            /* 讓畫布根據螢幕大小縮放，但保持 16:9 比例 */
             max-width: 100vw; 
             max-height: 100vh; 
             object-fit: contain; 
@@ -28,13 +26,28 @@
 </head>
 <body>
     <script>
+        // 檢查兩條線段 (p1-p2) 和 (p3-p4) 是否相交的輔助函數
+        function checkIntersection(p1, p2, p3, p4) {
+            let denominator = ((p2.x - p1.x) * (p4.y - p3.y)) - ((p2.y - p1.y) * (p4.x - p3.x));
+            if (denominator === 0) return false; 
+            
+            let a = p1.y - p3.y;
+            let b = p1.x - p3.x;
+            let num1 = ((p4.x - p3.x) * a) - ((p4.y - p3.y) * b);
+            let num2 = ((p2.x - p1.x) * a) - ((p2.y - p1.y) * b);
+            
+            a = num1 / denominator;
+            b = num2 / denominator;
+            
+            return (a > 0 && a < 1) && (b > 0 && b < 1);
+        }
+
         const config = {
             type: Phaser.AUTO,
             width: 1920,
             height: 1080,
             scale: { 
                 mode: Phaser.Scale.FIT, 
-                // 關閉 Phaser 自帶的置中，改由 CSS 的 Flexbox 全權處理
                 autoCenter: Phaser.Scale.NO_CENTER 
             },
             scene: { preload, create, update }
@@ -44,14 +57,14 @@
 
         function preload() {
             this.load.image('bg', 'bg.png');
-            for(let i = 1; i <= 6; i++) { this.load.image(i.toString(), i + '.png'); }
+            for(let i = 1; i <= 6; i++) { 
+                this.load.image(i.toString(), i + '.png'); 
+            }
             this.load.image('win_end_1', 'win_end_1.png');
             this.load.image('win_end_2', 'win_end_2.png');
             this.load.audio('bgm', 'bgm.mp3');
         }
 
-        // ... (以下 create, showWinMessage, update 函數內容保持不變)
-        // 這些邏輯不需要更動，因為我們已經在 CSS 層面處理好顯示位置了
         function create() {
             this.add.image(960, 540, 'bg').setDisplaySize(1920, 1080);
             this.bgmStarted = false;
@@ -59,10 +72,12 @@
             this.currentPath = [];
             this.isDrawing = false;
             this.graphics = this.add.graphics();
+            
             const cloudCenter = { x: 1300, y: 500 }; 
             const cloudRadius = 320; 
             const itemTypes = ['1', '2', '3', '4', '5', '6'];
             const levelData = [];
+            
             itemTypes.forEach(type => {
                 for (let i = 0; i < 2; i++) {
                     let x, y, tooClose;
@@ -72,25 +87,42 @@
                         let dist = Math.random() * cloudRadius;
                         x = cloudCenter.x + Math.cos(angle) * dist;
                         y = cloudCenter.y + Math.sin(angle) * dist;
+                        
                         for (let existing of levelData) {
-                            if (Phaser.Math.Distance.Between(x, y, existing.x, existing.y) < 160) { tooClose = true; break; }
+                            if (Phaser.Math.Distance.Between(x, y, existing.x, existing.y) < 160) { 
+                                tooClose = true; 
+                                break; 
+                            }
                         }
                     } while (tooClose);
                     levelData.push({ x, y, type: type });
                 }
             });
+            
             this.items = levelData.map(data => {
                 let item = this.add.sprite(data.x, data.y, data.type).setInteractive();
                 item.setDisplaySize(100, 120);
                 item.itemType = data.type;
                 item.isLinked = false;
-                item.blinkTween = this.tweens.add({ targets: item, alpha: 0.6, duration: 1200, yoyo: true, loop: -1 });
+                item.blinkTween = this.tweens.add({ 
+                    targets: item, 
+                    alpha: 0.6, 
+                    duration: 1200, 
+                    yoyo: true, 
+                    loop: -1 
+                });
+                
                 item.on('pointerdown', (pointer) => {
                     if (!this.bgmStarted) {
-                        this.sound.add('bgm', { loop: true, volume: 1.0 }).play();
+                        // 測試時若無音效檔案可先註解掉 play() 以防報錯
+                        // this.sound.add('bgm', { loop: true, volume: 1.0 }).play();
                         this.bgmStarted = true;
                     }
-                    let existingIdx = this.allLines.findIndex(l => l.startItem === item || l.endItem === item);
+                    
+                    let existingIdx = this.allLines.findIndex(l => {
+                        return l.startItem === item || l.endItem === item;
+                    });
+                    
                     if (existingIdx !== -1) {
                         this.allLines[existingIdx].startItem.isLinked = false;
                         this.allLines[existingIdx].endItem.isLinked = false;
@@ -99,40 +131,137 @@
                         this.isDrawing = true;
                         this.activeType = item.itemType;
                         this.startItem = item;
-                        this.startX = item.x; this.startY = item.y;
+                        this.startX = item.x; 
+                        this.startY = item.y;
                         this.currentPath = [];
                     }
                 });
                 return item;
             });
+            
+            // 加入碰撞、重疊與範圍偵測的 pointermove
             this.input.on('pointermove', (pointer) => {
                 if (!this.isDrawing) return;
-                this.currentPath.push({x: pointer.x, y: pointer.y});
+
+                let lastPoint = this.currentPath.length > 0 
+                    ? this.currentPath[this.currentPath.length - 1] 
+                    : { x: this.startX, y: this.startY };
+                    
+                let distMoved = Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, pointer.x, pointer.y);
+
+                if (distMoved >= 10) {
+                    let newPoint = { x: pointer.x, y: pointer.y };
+                    let shouldBreakLine = false;
+
+                    // 1. 範圍限制 (以雲朵中心為基準，給予一點寬容值)
+                    let distToCenter = Phaser.Math.Distance.Between(pointer.x, pointer.y, cloudCenter.x, cloudCenter.y);
+                    if (distToCenter > cloudRadius + 150) {
+                        shouldBreakLine = true;
+                    }
+
+                    // 2. 碰撞其他物品偵測
+                    if (!shouldBreakLine) {
+                        for (let item of this.items) {
+                            if (item === this.startItem) continue; 
+                            if (item.itemType === this.activeType && !item.isLinked) continue; 
+
+                            if (Phaser.Math.Distance.Between(pointer.x, pointer.y, item.x, item.y) < 60) {
+                                shouldBreakLine = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 3. 與已存在的線段重疊偵測
+                    if (!shouldBreakLine) {
+                        for (let line of this.allLines) {
+                            let pts = [{ x: line.startX, y: line.startY }, ...line.points, { x: line.endX, y: line.endY }];
+                            for (let i = 0; i < pts.length - 1; i++) {
+                                if (checkIntersection(lastPoint, newPoint, pts[i], pts[i + 1])) {
+                                    shouldBreakLine = true;
+                                    break;
+                                }
+                            }
+                            if (shouldBreakLine) break;
+                        }
+                    }
+
+                    // 4. 與自己正在畫的線重疊偵測 (打結)
+                    if (!shouldBreakLine && this.currentPath.length > 2) {
+                        for (let i = 0; i < this.currentPath.length - 2; i++) {
+                            let pA = i === 0 ? { x: this.startX, y: this.startY } : this.currentPath[i];
+                            let pB = this.currentPath[i + 1];
+                            if (checkIntersection(lastPoint, newPoint, pA, pB)) {
+                                shouldBreakLine = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 若觸發中斷，取消畫線並清空
+                    if (shouldBreakLine) {
+                        this.isDrawing = false;
+                        this.currentPath = [];
+                        return;
+                    }
+
+                    this.currentPath.push(newPoint);
+                }
             });
+
             this.input.on('pointerup', (pointer) => {
                 if (!this.isDrawing) return;
-                let found = this.items.find(s => s.itemType === this.activeType && s !== this.startItem && !s.isLinked && Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 100);
+                
+                let found = this.items.find(s => {
+                    return s.itemType === this.activeType && 
+                           s !== this.startItem && 
+                           !s.isLinked && 
+                           Phaser.Math.Distance.Between(pointer.x, pointer.y, s.x, s.y) < 100;
+                });
+                
                 if (found) {
-                    this.allLines.push({ points: [...this.currentPath], startX: this.startX, startY: this.startY, endX: found.x, endY: found.y, startItem: this.startItem, endItem: found });
-                    this.startItem.isLinked = true; found.isLinked = true;
-                    if (this.items.every(item => item.isLinked === true)) { showWinMessage.call(this); }
+                    this.allLines.push({ 
+                        points: [...this.currentPath], 
+                        startX: this.startX, 
+                        startY: this.startY, 
+                        endX: found.x, 
+                        endY: found.y, 
+                        startItem: this.startItem, 
+                        endItem: found 
+                    });
+                    this.startItem.isLinked = true; 
+                    found.isLinked = true;
+                    
+                    if (this.items.every(item => item.isLinked === true)) { 
+                        showWinMessage.call(this); 
+                    }
                 }
-                this.isDrawing = false; this.currentPath = [];
+                this.isDrawing = false; 
+                this.currentPath = [];
             });
         }
+
         function showWinMessage() {
             let overlay = this.add.rectangle(960, 540, 1920, 1080, 0xfbf7ec).setDepth(200).setAlpha(0);
             let img1 = this.add.image(960, 540, 'win_end_1').setAlpha(0).setDepth(201);
             let img2 = this.add.image(960, 540, 'win_end_2').setAlpha(0).setDepth(201);
-            this.tweens.add({ targets: [overlay, img1], alpha: 1, duration: 1500, onComplete: () => {
-                this.time.delayedCall(1000, () => {
-                    this.tweens.add({ targets: img1, alpha: 0, duration: 1500 });
-                    this.tweens.add({ targets: img2, alpha: 1, duration: 1500 });
-                });
-            }});
+            
+            this.tweens.add({ 
+                targets: [overlay, img1], 
+                alpha: 1, 
+                duration: 1500, 
+                onComplete: () => {
+                    this.time.delayedCall(1000, () => {
+                        this.tweens.add({ targets: img1, alpha: 0, duration: 1500 });
+                        this.tweens.add({ targets: img2, alpha: 1, duration: 1500 });
+                    });
+                }
+            });
         }
+
         function update() {
             this.graphics.clear();
+            
             this.allLines.forEach(line => {
                 this.graphics.lineStyle(12, 0x9fa8a3, 0.8);
                 this.graphics.beginPath();
@@ -141,6 +270,7 @@
                 this.graphics.lineTo(line.endX, line.endY);
                 this.graphics.strokePath();
             });
+            
             if (this.isDrawing) {
                 this.graphics.lineStyle(12, 0x9fa8a3, 0.8);
                 this.graphics.beginPath();
