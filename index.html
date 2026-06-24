@@ -115,7 +115,7 @@
                 item.on('pointerdown', (pointer) => {
                     if (!this.bgmStarted) {
                         // 測試時若無音效檔案可先註解掉 play() 以防報錯
-                        // this.sound.add('bgm', { loop: true, volume: 1.0 }).play();
+                        this.sound.add('bgm', { loop: true, volume: 1.0 }).play();
                         this.bgmStarted = true;
                     }
                     
